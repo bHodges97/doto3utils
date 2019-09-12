@@ -4,8 +4,12 @@ import sys
 import os
 
 def parse_url(obj_url):
+    """url: s3://bucket/object"""
     obj_url = obj_url[5:]#remove s3://
     return obj_url.split('/',1)
+
+def build_url(bucket_name,object_name):
+    return "s3://"+bucket_name+"/"+object_name
 
 def list_objects(resource,bucket_name):
     try:
@@ -16,12 +20,23 @@ def list_objects(resource,bucket_name):
         return []
 
 def delete_object(resource,obj_url):
+    """delete object using s3 url"""
     bucket_name,key_name = parse_url(obj_url)
     obj = resource.Object(bucket_name,key_name)
     obj.delete()
 
+def delete_bucket(resource,bucket_name):
+    try:
+        bucket = resource.Bucket(bucket_name)
+        bucket.objects.all().delete()
+    except resource.meta.client.exceptions.NoSuchBucket:
+        pass
+
 def create_bucket(resource,bucket_name):
-    return resource.create_bucket(Bucket=bucket_name)
+    try:
+        resource.create_bucket(Bucket=bucket_name)
+    except resource.meta.client.exceptions.BucketAlreadyOwnedByYou:
+        pass
 
 def create_obj(resource,bucket_name,object_name,object_content):
     try:
@@ -33,6 +48,10 @@ def create_obj(resource,bucket_name,object_name,object_content):
         return None
 
 def put_object_blocks(resource,location,blocksize=10485760):
+    """Uploads file to s3
+        Read file from disk 1 blocksize at a time
+       Locations is tuple of form: bucket name, file path, start offset, file length
+    """
     url,local_path,offset,length = location
     bucket_name,object_name = parse_url(url)
     with open(local_path,"br") as f:
@@ -51,6 +70,10 @@ def put_object_blocks(resource,location,blocksize=10485760):
         del content
 
 def put_object(resource,location):
+    """Upload file to s3.
+       loads file into bytearray
+       Locations is tuple of form: bucket name, file path, start offset, file length
+    """
     url,local_path,offset,length = location
     bucket_name,object_name = parse_url(url)
     with open(local_path,"br") as f:
@@ -64,6 +87,8 @@ def put_object(resource,location):
 
 
 def put_objects(resource,locations):
-    for location in locations:
-        t = threading.Thread(target = put_object, args=(resource,location)).start()
-        #put_object(resource,location)
+    """Bulk upload files"""
+    threads = [threading.Thread(target = put_object, args = (resource,location)) for location in locations]
+    for thread in threads:
+        thread.start()
+    return threads
